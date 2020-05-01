@@ -1,0 +1,5 @@
+*.orig
+*.rej
+*.o
+patches
+slstatus
