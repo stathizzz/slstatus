@@ -186,6 +186,6 @@ end:
 	else if (val>0.7) ico = "🔊";
 	else if (val>0.3) ico = "🔉";
 	
-	return bprintf("%s %.0f%%", ico, 100 * val);
+	return bprintf("%s %.0f", ico, 100 * val);
 }
 #endif

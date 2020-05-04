@@ -29,22 +29,23 @@ mpd_current_play() {
 	const char *title = NULL;
 	const char *name = NULL;
 	const char *url = NULL;
-	int retval = 0;
 	char *icon = "🎹";
 	conn = mpd_connection_new(MPDHOST, MPDPORT, 1000);
 	if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS){
 		warn("Mpd connection error: %s\n", mpd_connection_get_error_message(conn));
+		snprintf(buf, LEN(buf), "%s N/A", icon);
 		goto postend;
 	}
 
 	status = mpd_run_status(conn);
 	if (status == NULL){
 		warn("Cannot get mpd status: %s\n", mpd_status_get_error(status));
+		snprintf(buf, LEN(buf), "%s N/A", icon);
 		goto end;
 	}
 	enum mpd_state state = mpd_status_get_state(status);
 	if (state == MPD_STATE_STOP || state == MPD_STATE_UNKNOWN){
-		//warn("Mpd has stopped with state %d\n", state);
+		snprintf(buf, LEN(buf), "%s N/A", icon);
 		goto end;
 	}
 	else if (state == MPD_STATE_PAUSE){
@@ -57,9 +58,9 @@ mpd_current_play() {
 	song = mpd_run_current_song(conn);
 	if (song == NULL){
 		warn("Error fetching song\n");
+		snprintf(buf, LEN(buf), "%s N/A", icon);
 		goto preend;
 	}
-	retval = 1;
 	artist = mpd_song_get_tag(song, MPD_TAG_ARTIST, 0);
 	title = mpd_song_get_tag(song, MPD_TAG_TITLE, 0);
 	name = mpd_song_get_tag(song, MPD_TAG_NAME, 0);
@@ -92,7 +93,5 @@ end:
 postend:
 	mpd_connection_free(conn);
 
-	if (!retval) 
-		return NULL;
 	return buf;
 }
