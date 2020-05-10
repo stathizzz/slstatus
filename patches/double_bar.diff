@@ -1,0 +1,88 @@
+diff --git a/config.def.h b/config.def.h
+index e06be66..d041680 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -2,7 +2,8 @@
+ 
+ /* interval between updates (in ms) */
+ const unsigned int interval = 1000;
+-
++const unsigned int primary_statusbar_duration_before_change = 20000;
++const unsigned int secondary_statusbar_duration = 15000;
+ /* text to show if no value can be retrieved */
+ static const char unknown_str[] = "n/a";
+ 
+@@ -65,3 +66,7 @@ static const struct arg args[] = {
+ 	/* function format          argument */
+ 	{ datetime, "%s",           "%F %T" },
+ };
++static const struct arg args2[] = {
++	/* function format          argument */
++	{ datetime, " %s", "[%a]%d-%m %T" },
++};
+diff --git a/slstatus.c b/slstatus.c
+index 96fa5b6..4c5f1a6 100644
+--- a/slstatus.c
++++ b/slstatus.c
+@@ -45,11 +45,23 @@ usage(void)
+ 	die("usage: %s [-s]", argv0);
+ }
+ 
++#define print_array(argarray) \ 
++	for (i = len = 0; i < LEN(argarray); i++) { \
++		if (!(res = argarray[i].func(argarray[i].args))) { \
++			res = unknown_str; \
++		} \
++		if ((ret = esnprintf(status + len, sizeof(status) - len, \
++				    argarray[i].fmt, res)) < 0) { \
++			break; \
++		} \
++		len += ret; \
++	}
++
+ int
+ main(int argc, char *argv[])
+ {
+ 	struct sigaction act;
+-	struct timespec start, current, diff, intspec, wait;
++	struct timespec start, current, diff, intspec, wait, epoch;
+ 	size_t i, len;
+ 	int sflag, ret;
+ 	char status[MAXLEN];
+@@ -77,21 +89,28 @@ main(int argc, char *argv[])
+ 		die("XOpenDisplay: Failed to open display");
+ 	}
+ 
++	if (clock_gettime(CLOCK_MONOTONIC, &epoch) < 0) {
++		die("clock_gettime:");
++	}
++
+ 	while (!done) {
+ 		if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
+ 			die("clock_gettime:");
+ 		}
+ 
+ 		status[0] = '\0';
+-		for (i = len = 0; i < LEN(args); i++) {
+-			if (!(res = args[i].func(args[i].args))) {
+-				res = unknown_str;
+-			}
+-			if ((ret = esnprintf(status + len, sizeof(status) - len,
+-			                    args[i].fmt, res)) < 0) {
+-				break;
++		
++		difftimespec(&diff, &start, &epoch);
++		if (!(diff.tv_sec * 1000 / primary_statusbar_duration_before_change)) {
++			print_array(args);
++		}
++		else {
++			print_array(args2);
++			if (diff.tv_sec * 1000 / (primary_statusbar_duration_before_change + secondary_statusbar_duration)) {
++				if (clock_gettime(CLOCK_MONOTONIC, &epoch) < 0) {
++					die("clock_gettime:");
++				}
+ 			}
+-			len += ret;
+ 		}
+ 
+ 		if (sflag) {

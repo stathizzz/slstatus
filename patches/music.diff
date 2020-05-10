@@ -1,0 +1,235 @@
+diff --git a/Makefile b/Makefile
+index 945b5e3..46eac94 100644
+--- a/Makefile
++++ b/Makefile
+@@ -26,7 +26,8 @@ COM =\
+ 	components/uptime\
+ 	components/user\
+ 	components/volume\
+-	components/wifi
++	components/wifi\
++	components/music
+ 
+ all: slstatus
+ 
+diff --git a/components/music.c b/components/music.c
+new file mode 100644
+index 0000000..cab013f
+--- /dev/null
++++ b/components/music.c
+@@ -0,0 +1,97 @@
++#include <unistd.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdarg.h>
++#include <string.h>
++#include <strings.h>
++#include <sys/time.h>
++#include <time.h>
++#include <sys/types.h>
++#include <sys/wait.h>
++
++#include <mpd/connection.h>
++#include <mpd/client.h>
++#include <mpd/tag.h>
++
++#include <X11/Xlib.h>
++
++#include "../util.h"
++#define MPDHOST "localhost"
++#define MPDPORT 6600
++
++const char *
++mpd_current_play() {
++
++	struct mpd_connection *conn = NULL;
++	struct mpd_song *song = NULL;
++	struct mpd_status *status;
++	const char *artist = NULL;
++	const char *title = NULL;
++	const char *name = NULL;
++	const char *url = NULL;
++	char *icon = "🎹";
++	conn = mpd_connection_new(MPDHOST, MPDPORT, 1000);
++	if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS){
++		warn("Mpd connection error: %s\n", mpd_connection_get_error_message(conn));
++		snprintf(buf, LEN(buf), "%s N/A", icon);
++		goto postend;
++	}
++
++	status = mpd_run_status(conn);
++	if (status == NULL){
++		warn("Cannot get mpd status: %s\n", mpd_status_get_error(status));
++		snprintf(buf, LEN(buf), "%s N/A", icon);
++		goto end;
++	}
++	enum mpd_state state = mpd_status_get_state(status);
++	if (state == MPD_STATE_STOP || state == MPD_STATE_UNKNOWN){
++		snprintf(buf, LEN(buf), "%s N/A", icon);
++		goto end;
++	}
++	else if (state == MPD_STATE_PAUSE){
++		icon = "⏸";
++	}
++	else if (state == MPD_STATE_PLAY){
++		icon = "▶";
++	}
++
++	song = mpd_run_current_song(conn);
++	if (song == NULL){
++		warn("Error fetching song\n");
++		snprintf(buf, LEN(buf), "%s N/A", icon);
++		goto preend;
++	}
++	artist = mpd_song_get_tag(song, MPD_TAG_ARTIST, 0);
++	title = mpd_song_get_tag(song, MPD_TAG_TITLE, 0);
++	name = mpd_song_get_tag(song, MPD_TAG_NAME, 0);
++	if (title) {
++		if (artist) 
++			snprintf(buf, LEN(buf), "%s %s - %s", icon, artist, title);
++		else 
++			snprintf(buf, LEN(buf), "%s %s", icon, title);
++		goto preend;
++	}
++	else if (name) {
++		snprintf(buf, LEN(buf), "%s %s", icon, name);
++		goto preend;
++	}
++	else if (artist) {
++		snprintf(buf, LEN(buf), "%s %s", icon, artist);
++		goto preend;
++	}
++	else {
++		url = mpd_song_get_uri(song);
++		if (url) {
++			snprintf(buf, LEN(buf), "%s %s", icon, url);
++			goto preend;
++		}
++	}
++preend:
++	mpd_song_free(song);
++end:
++	mpd_status_free(status);
++postend:
++	mpd_connection_free(conn);
++
++	return buf;
++}
+diff --git a/config.def.h b/config.def.h
+index e06be66..e44c0d5 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -60,8 +60,12 @@ static const char unknown_str[] = "n/a";
+  * vol_perc            OSS/ALSA volume in percent      mixer file (/dev/mixer)
+  * wifi_perc           WiFi signal in percent          interface name (wlan0)
+  * wifi_essid          WiFi ESSID                      interface name (wlan0)
++ *
++ * mpd_current_play    Song currently playing/paused   NULL
++ * 
+  */
+ static const struct arg args[] = {
+ 	/* function format          argument */
++	{ mpd_current_play, " %s" },
+ 	{ datetime, "%s",           "%F %T" },
+ };
+diff --git a/config.h b/config.h
+new file mode 100644
+index 0000000..e44c0d5
+--- /dev/null
++++ b/config.h
+@@ -0,0 +1,71 @@
++/* See LICENSE file for copyright and license details. */
++
++/* interval between updates (in ms) */
++const unsigned int interval = 1000;
++
++/* text to show if no value can be retrieved */
++static const char unknown_str[] = "n/a";
++
++/* maximum output string length */
++#define MAXLEN 2048
++
++/*
++ * function            description                     argument (example)
++ *
++ * battery_perc        battery percentage              battery name (BAT0)
++ *                                                     NULL on OpenBSD/FreeBSD
++ * battery_state       battery charging state          battery name (BAT0)
++ *                                                     NULL on OpenBSD/FreeBSD
++ * battery_remaining   battery remaining HH:MM         battery name (BAT0)
++ *                                                     NULL on OpenBSD/FreeBSD
++ * cpu_perc            cpu usage in percent            NULL
++ * cpu_freq            cpu frequency in MHz            NULL
++ * datetime            date and time                   format string (%F %T)
++ * disk_free           free disk space in GB           mountpoint path (/)
++ * disk_perc           disk usage in percent           mountpoint path (/)
++ * disk_total          total disk space in GB          mountpoint path (/")
++ * disk_used           used disk space in GB           mountpoint path (/)
++ * entropy             available entropy               NULL
++ * gid                 GID of current user             NULL
++ * hostname            hostname                        NULL
++ * ipv4                IPv4 address                    interface name (eth0)
++ * ipv6                IPv6 address                    interface name (eth0)
++ * kernel_release      `uname -r`                      NULL
++ * keyboard_indicators caps/num lock indicators        format string (c?n?)
++ *                                                     see keyboard_indicators.c
++ * keymap              layout (variant) of current     NULL
++ *                     keymap
++ * load_avg            load average                    NULL
++ * netspeed_rx         receive network speed           interface name (wlan0)
++ * netspeed_tx         transfer network speed          interface name (wlan0)
++ * num_files           number of files in a directory  path
++ *                                                     (/home/foo/Inbox/cur)
++ * ram_free            free memory in GB               NULL
++ * ram_perc            memory usage in percent         NULL
++ * ram_total           total memory size in GB         NULL
++ * ram_used            used memory in GB               NULL
++ * run_command         custom shell command            command (echo foo)
++ * swap_free           free swap in GB                 NULL
++ * swap_perc           swap usage in percent           NULL
++ * swap_total          total swap size in GB           NULL
++ * swap_used           used swap in GB                 NULL
++ * temp                temperature in degree celsius   sensor file
++ *                                                     (/sys/class/thermal/...)
++ *                                                     NULL on OpenBSD
++ *                                                     thermal zone on FreeBSD
++ *                                                     (tz0, tz1, etc.)
++ * uid                 UID of current user             NULL
++ * uptime              system uptime                   NULL
++ * username            username of current user        NULL
++ * vol_perc            OSS/ALSA volume in percent      mixer file (/dev/mixer)
++ * wifi_perc           WiFi signal in percent          interface name (wlan0)
++ * wifi_essid          WiFi ESSID                      interface name (wlan0)
++ *
++ * mpd_current_play    Song currently playing/paused   NULL
++ * 
++ */
++static const struct arg args[] = {
++	/* function format          argument */
++	{ mpd_current_play, " %s" },
++	{ datetime, "%s",           "%F %T" },
++};
+diff --git a/config.mk b/config.mk
+index 3b32b7c..c8242a9 100644
+--- a/config.mk
++++ b/config.mk
+@@ -14,7 +14,7 @@ X11LIB = /usr/X11R6/lib
+ CPPFLAGS = -I$(X11INC) -D_DEFAULT_SOURCE
+ CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Os
+ LDFLAGS  = -L$(X11LIB) -s
+-LDLIBS   = -lX11
++LDLIBS   = -lX11 -lmpdclient
+ 
+ # compiler and linker
+ CC = cc
+diff --git a/slstatus.h b/slstatus.h
+index 08f610a..c24e19e 100644
+--- a/slstatus.h
++++ b/slstatus.h
+@@ -79,3 +79,6 @@ const char *vol_perc(const char *card);
+ /* wifi */
+ const char *wifi_perc(const char *interface);
+ const char *wifi_essid(const char *interface);
++
++/* music */
++const char *mpd_current_play(void);

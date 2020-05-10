@@ -1,0 +1,168 @@
+--- a/components/volume.c
++++ b/components/volume.c
+@@ -106,4 +106,119 @@
+ 
+ 		return bprintf("%d", v & 0xff);
+ 	}
++
++	#include <alsa/asoundlib.h>
++	#include <alsa/mixer.h>
++
++	static struct snd_mixer_selem_regopt smixer_options;
++
++	static int 
++	parse_simple_id(const char *str, snd_mixer_selem_id_t *sid)
++	{
++		int c, size;
++		char buf[128];
++		char *ptr = buf;
++
++		while (*str == ' ' || *str == '\t')
++			str++;
++		if (!(*str))
++			return -EINVAL;
++		size = 1;	/* for '\0' */
++		if (*str != '"' && *str != '\'') {
++			while (*str && *str != ',') {
++				if (size < (int)sizeof(buf)) {
++					*ptr++ = *str;
++					size++;
++				}
++				str++;
++			}
++		} else {
++			c = *str++;
++			while (*str && *str != c) {
++				if (size < (int)sizeof(buf)) {
++					*ptr++ = *str;
++					size++;
++				}
++				str++;
++			}
++			if (*str == c)
++				str++;
++		}
++		if (*str == '\0') {
++			snd_mixer_selem_id_set_index(sid, 0);
++			*ptr = 0;
++			goto _set;
++		}
++		if (*str != ',')
++			return -EINVAL;
++		*ptr = 0;	/* terminate the string */
++		str++;
++
++		if (!isdigit(*str))
++			return -EINVAL;
++		snd_mixer_selem_id_set_index(sid, atoi(str));
++	_set:
++		snd_mixer_selem_id_set_name(sid, buf);
++		return 0;
++	}
++
++
++	const char *
++	alsa_vol_perc(const char *card)
++	{
++		int err = 0;
++		long pvol, pmin = 0, pmax = 0;
++
++		snd_mixer_t *mhandle = NULL;
++		snd_mixer_elem_t *elem;
++		snd_mixer_selem_id_t *sid;
++		const char *scontrol_id = "Master";
++
++		if ((err = snd_mixer_open(&mhandle, 0)) < 0) {
++			warn("Mixer open error: %s", snd_strerror(err));
++			return NULL;
++		}
++		if (err = snd_mixer_attach(mhandle, card) < 0) {
++			warn("Mixer attach %s error: %s", card, snd_strerror(err));
++			goto end;
++		}
++		if (err = snd_mixer_selem_register(mhandle, NULL, NULL) < 0) {
++			warn("Mixer register error: %s", snd_strerror(err));
++			goto end;
++		}
++		if (err = snd_mixer_load(mhandle) < 0) {
++			warn("Mixer load %s error: %s", card, snd_strerror(err));
++			goto end;
++		}
++		snd_mixer_selem_id_alloca(&sid);
++		if (err = parse_simple_id(scontrol_id, sid)) {
++			warn("Wrong scontrol identifier: %s\n", scontrol_id);
++			goto end;
++		}
++		if (!(elem = snd_mixer_find_selem(mhandle, sid))) {
++			warn("Unable to find simple control on '%s',%i\n", snd_mixer_selem_id_get_name(sid), snd_mixer_selem_id_get_index(sid));
++			err = -1;
++			goto end;
++		}
++		if (err = snd_mixer_selem_get_playback_volume_range(elem, &pmin, &pmax)) {
++			warn("Unable to get volume range on '%s',%i\n", snd_mixer_selem_id_get_name(sid), snd_mixer_selem_id_get_index(sid));
++			goto end;
++		}
++		if (err = snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &pvol)) {
++			warn("Unable to get playback volume on '%s',%i\n", snd_mixer_selem_id_get_name(sid), snd_mixer_selem_id_get_index(sid));
++			goto end;
++		}
++	end:
++		if (mhandle) snd_mixer_close(mhandle);
++		if (err) {
++			return NULL;
++		}
++		char *ico = "🔈";
++		double val = (double)pvol / (double)(pmax - pmin);
++		if (!pvol)  ico = "🔇";
++		else if (val>0.7) ico = "🔊";
++		else if (val>0.3) ico = "🔉";
++		
++		return bprintf("%s %.0f", ico, 100 * val);
++	}
+ #endif
+diff --git a/config.def.h b/config.def.h
+index e06be66..b007e89 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -58,10 +58,12 @@ static const char unknown_str[] = "n/a";
+  * uptime              system uptime                   NULL
+  * username            username of current user        NULL
+  * vol_perc            OSS/ALSA volume in percent      mixer file (/dev/mixer)
++ * alsa_vol_perc       ALSA comp. volume in percent      mixer file (/dev/mixer)
+  * wifi_perc           WiFi signal in percent          interface name (wlan0)
+  * wifi_essid          WiFi ESSID                      interface name (wlan0)
+  */
+ static const struct arg args[] = {
+ 	/* function format          argument */
+ 	{ datetime, "%s",           "%F %T" },
++	{ alsa_vol_perc, "%s%% ", "default"},
+ };
+diff --git a/config.mk b/config.mk
+index 3b32b7c..cd2a234 100644
+--- a/config.mk
++++ b/config.mk
+@@ -14,7 +14,7 @@ X11LIB = /usr/X11R6/lib
+ CPPFLAGS = -I$(X11INC) -D_DEFAULT_SOURCE
+ CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Os
+ LDFLAGS  = -L$(X11LIB) -s
+-LDLIBS   = -lX11
++LDLIBS   = -lX11 -lasound
+ 
+ # compiler and linker
+ CC = cc
+diff --git a/slstatus b/slstatus
+new file mode 100755
+index 0000000..83f96ca
+Binary files /dev/null and b/slstatus differ
+diff --git a/slstatus.h b/slstatus.h
+index 08f610a..4d51e1f 100644
+--- a/slstatus.h
++++ b/slstatus.h
+@@ -75,6 +75,7 @@ const char *uid(void);
+ 
+ /* volume */
+ const char *vol_perc(const char *card);
++const char *alsa_vol_perc(const char *card);
+ 
+ /* wifi */
+ const char *wifi_perc(const char *interface);
