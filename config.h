@@ -8,7 +8,7 @@ const unsigned int secondary_statusbar_duration = 15000;
 static const char unknown_str[] = "n/a";
 
 /* maximum output string length */
-#define MAXLEN 1024
+#define MAXLEN 2048
 
 /*
  * function            description                     argument (example)
@@ -61,6 +61,9 @@ static const char unknown_str[] = "n/a";
  * vol_perc            OSS/ALSA volume in percent      mixer file (/dev/mixer)
  * wifi_perc           WiFi signal in percent          interface name (wlan0)
  * wifi_essid          WiFi ESSID                      interface name (wlan0)
+ *
+ * mpd_current_play    Song currently playing/paused   NULL
+ * 
  */
 
 //$(sed \"s/-/Discharging/;s/+/Charging/;/?/Full\" %s")

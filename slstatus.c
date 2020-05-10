@@ -92,10 +92,12 @@ main(int argc, char *argv[])
 	if (clock_gettime(CLOCK_MONOTONIC, &epoch) < 0) {
 		die("clock_gettime:");
 	}
+
 	while (!done) {
 		if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
 			die("clock_gettime:");
 		}
+
 		status[0] = '\0';
 
 		difftimespec(&diff, &start, &epoch);
@@ -110,6 +112,7 @@ main(int argc, char *argv[])
 				}
 			}
 		}
+
 		if (sflag) {
 			puts(status);
 			fflush(stdout);

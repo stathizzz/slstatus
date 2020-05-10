@@ -23,8 +23,10 @@ This is not just a fork, but added functionality. After experimenting with other
 
 New functionality is added:
 - Alsa volume percentage 
+	Native way of callig amixer without relying to a mixer device 
 	For operating systems having ALSA sound libs, the volume percentage can be given through it, which is fairly more stable. Do note though the asound library should be linked and alsa headers should be in the path
 - MPD music data !
+	Get mpd states natively on your bar.
 	If you use mpd for listening to music, you can get a song's data on the status bar. Do note you need to link the mpdclient library and mpd headers be in the path 
 
 
